@@ -2,6 +2,8 @@
 
 ## Reproduce schematic layout in PCB layout
 
+Based on an original idea by @jenschr
+
 The `SchematicPositionsToLayout.py` plugin helps with the initial
 organisation of parts when first creating a PCB layout from a
 schematic. Install the `SchematicPositionsToLayout.py` in your KiCad
