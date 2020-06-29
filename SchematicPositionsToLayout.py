@@ -126,13 +126,16 @@ def move_modules(components, board, offsets):
         old_pos = module.GetPosition()
         ref = module.GetReference()
         path = module.GetPath()
+        print(ref, path, file=DEBUG)
         if path in components:
             ref, pos, sheet = components[path]
             offset = offsets[sheet]
             new_pos = pcbnew.wxPoint(pos[0] * POS_SCALE, (pos[1] + offset) * POS_SCALE)
-            print('path =', path, '  sheet =', sheet, '  ref =', ref,
+            print('  path =', path, '  sheet =', sheet, '  ref =', ref,
                   '  pos =', pos, '  new_pos =', new_pos, file=DEBUG)
             module.SetPosition(new_pos)
+        else:
+            print('  NOT FOUND', file=DEBUG)
 
 class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
     def defaults(self):
@@ -190,7 +193,7 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         components = dict()
         s = sheets['']
         for cid in s.components:
-            components[cid] = s.components[cid] + tuple([''])
+            components['/' + cid] = s.components[cid] + tuple([''])
         for sheet_name in sheets:
             if sheet_name == '':
                 continue
