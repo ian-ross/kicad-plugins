@@ -181,13 +181,14 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         # the layout.
         offsets = dict()
         offsets[''] = 0
-        running_offset = sheets[''].yrange[1] - sheets[''].yrange[0]
+        OFFSET_FACTOR = 1.25
+        running_offset = OFFSET_FACTOR * (sheets[''].yrange[1] - sheets[''].yrange[0])
         for sname in sheets:
             if sname == '':
                 continue
             s = sheets[sname]
             offsets[sname] = running_offset
-            running_offset += s.yrange[1] - s.yrange[0]
+            running_offset += OFFSET_FACTOR * (s.yrange[1] - s.yrange[0])
 
         # Make a master component map, recording the component's
         # position in the sheet.
