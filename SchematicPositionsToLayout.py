@@ -145,7 +145,8 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
 
     def Run(self):
         global DEBUG
-        DEBUG = open('schematic-positions-to-layout.debug', 'w')
+        work_dir = os.path.dirname(pcbnew.GetBoard().GetFileName())
+        DEBUG = open(os.path.join(work_dir, 'schematic-positions-to-layout.debug'), 'w')
         try:
             self.DoRun()
         finally:
