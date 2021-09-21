@@ -44,7 +44,7 @@ class SchSheet:
         self.components = dict()
         self.sub_sheets = dict()
 
-        print('New sheet from:', file)
+        print('New sheet from:', file, file=DEBUG)
 
         self.xrange = [None, None]
         self.yrange = [None, None]
@@ -264,7 +264,8 @@ def move_modules(components, board, offsets, kicad_v6=False):
             module.SetPosition(new_pos)
         else:
             print('  NOT FOUND', file=DEBUG)
-            
+
+
 class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
     def defaults(self):
         self.name = "Schematic positions -> PCB positions"
@@ -284,7 +285,7 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         board = pcbnew.GetBoard()
         work_dir, in_pcb_file = os.path.split(board.GetFileName())
         os.chdir(work_dir)
-        root_schematic_file = os.path.splitext(in_pcb_file)[0] + '.kicad_sch'
+        root_schematic_file = os.path.splitext(in_pcb_file)[0] + '.kicad_sch' if ENABLE_KICAD_V6_API else '.sch'
         print('work_dir = {}'.format(work_dir), file=DEBUG)
         print('in_pcb_file = {}'.format(in_pcb_file), file=DEBUG)
         print('root_schematic_file = {}'.format(root_schematic_file), file=DEBUG)
@@ -295,7 +296,6 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         sheet_queue = dict()
         sheet_queue[''] = ('', root_schematic_file)
         while len(sheet_queue) > 0:
-            print('sheet queue: {}'.format(sheet_queue), file=DEBUG)
             sheet_path = list(sheet_queue)[0]
             if sheet_path in sheets:
                 print('Oops. Sheet "{}" turned up twice!'.format(sheet_path), file=DEBUG)
@@ -312,7 +312,6 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         offsets = dict()
         offsets[''] = 0
         OFFSET_FACTOR = 1.25
-
         running_offset = OFFSET_FACTOR * (sheets[''].yrange[1] - sheets[''].yrange[0])
         for sname in sheets:
             if sname == '':
@@ -342,4 +341,3 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         move_modules(components, board, offsets, kicad_v6=ENABLE_KICAD_V6_API)
 
 SchematicPositionsToLayoutPlugin().register()
-
