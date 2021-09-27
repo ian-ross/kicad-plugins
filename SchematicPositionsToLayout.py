@@ -3,6 +3,18 @@ import os.path
 import re
 import sys
 import pcbnew
+from collections import defaultdict
+import shlex
+
+if hasattr(pcbnew, 'GetBuildVersion'):
+    BUILD_VERSION = pcbnew.GetBuildVersion()
+    MAJOR, MINOR = tuple(map(int, BUILD_VERSION.split('~')[0].split('.')[:2]))
+    if MAJOR >= 6 or MAJOR == 5 and MINOR == 99:
+        ENABLE_KICAD_V6_API=True
+else:
+    BUILD_VERSION = "Unknown"
+    ENABLE_KICAD_V6_API = False
+
 
 DEBUG = None
 
@@ -119,16 +131,132 @@ class SchSheet:
             print('Failed reading schematic file:', err, file=DEBUG)
             sys.exit(1)
 
+class SchSheetV6(SchSheet):
+    def __init__(self, file):
+        self.components = dict()
+        self.sub_sheets = dict()
+
+        print('New sheet from:', file)
+
+        self.xrange = [None, None]
+        self.yrange = [None, None]
+
+        ast = self.parse_ast(file)
+        self.walk(ast)
+
+    def parse_ast(self, filename):
+        Symbol = str              # A Scheme Symbol is implemented as a Python str
+        Number = (int, float)     # A Scheme Number is implemented as a Python int or float
+        Atom   = (Symbol, Number) # A Scheme Atom is a Symbol or Number
+        List   = list             # A Scheme List is implemented as a Python list
+        Exp    = (Atom, List)     # A Scheme expression is an Atom or List
+        Env    = dict             # A Scheme environment (defined below) 
+                                  # is a mapping of {variable: value}
+
+        def tokenize(chars: str) -> list:
+            "Convert a string of characters into a list of tokens."
+            return shlex.split(chars.replace('(', ' ( ').replace(')', ' ) '))
+
+        def parse(program: str) -> Exp:
+            "Read a Scheme expression from a string."
+            return read_from_tokens(tokenize(program))
+
+        def read_from_tokens(tokens: list) -> Exp:
+            "Read an expression from a sequence of tokens."
+            if len(tokens) == 0:
+                raise SyntaxError('unexpected EOF')
+            token = tokens.pop(0)
+            if token == '(':
+                L = []
+                while tokens[0] != ')':
+                    L.append(read_from_tokens(tokens))
+                tokens.pop(0) # pop off ')'
+                return L
+            elif token == ')':
+                raise SyntaxError('unexpected )')
+            else:
+                return atom(token)
+
+        def atom(token: str) -> Atom:
+            "Numbers become numbers; every other token is a symbol."
+            try: return int(token)
+            except ValueError:
+                try: return float(token)
+                except ValueError:
+                    return Symbol(token)
+        
+        with open(filename) as f:
+            data = f.read()
+
+        #ast = OneOrMore(nestedExpr()).parseString(data, parseAll=True)
+        ast = parse(data)
+        return ast
+    
+    def pick(self, lst, *attribute_names):
+        attr_pool = defaultdict(list)
+        for i in attribute_names:
+            values = i.split()
+            attr_pool[values[0]].append(values)
+        obj = {}
+        for item in lst:
+            if item[0] in attr_pool:
+                token_len = len(attr_pool[item[0]][0])
+                if token_len == 1:  # simple case, direct match
+                    obj[item[0]] = item[1:]
+                else:  # complex, try matching tail tokens
+                    for tokens in attr_pool[item[0]]:
+                        if item[:len(tokens)] == tokens:  # match
+                            obj[' '.join(tokens)] = item[len(tokens):]
+                            break
+        #print("pick:", attribute_names, "got:", obj)
+        return obj
+
+    def pick_property(self, lst, prop_name=None, prop_id=None):
+        for item in lst:
+            if item[0] == 'property' and ( \
+                                           (prop_name is not None and item[1] == prop_name) or \
+                                           (prop_id is not None and int(self.pick(item[1:], 'id')['id'][0]) == prop_id)):
+                #print("prop get:", item[2])
+                return item[2]
+
+    def walk(self, ast):
+        def position_convert(x: str):
+            return int(float(x)*100)
+        
+        for i in ast:
+            token = i[0]
+            if token == 'symbol':  #  Process start and end of component
+                component_ref = self.pick_property(i[1:], prop_id=0)
+                component_id = self.pick(i[1:], "uuid")['uuid'][0]
+                component_pos = tuple(map(position_convert, self.pick(i[1:], "at")['at']))[:2]
+                self.components[component_id] = (component_ref, component_pos)
+                self.extend_range(component_pos[0], component_pos[1])
+            elif token == 'sheet': # Handle sub-sheet
+                sheet_bounds_ast = self.pick(i[1:], 'at', 'size')
+                sheet_bounds = tuple(map(position_convert, sheet_bounds_ast['at'] + sheet_bounds_ast['size']))
+                sheet_id = self.pick(i[1:], "uuid")['uuid'][0]
+                sheet_name = self.pick_property(i[1:], prop_id=0)
+                sheet_file = self.pick_property(i[1:], prop_id=1)
+                self.sub_sheets[sheet_id] = (sheet_name, sheet_file)
+                self.extend_range(sheet_bounds[0], sheet_bounds[1])
+                self.extend_range(sheet_bounds[0] + sheet_bounds[2],
+                                  sheet_bounds[1] + sheet_bounds[3])
+
 POS_SCALE = 15000
 
-def move_modules(components, board, offsets):
-    for module in board.GetModules():
+def move_modules(components, board, offsets, kicad_v6=False):
+    for module in board.GetModules() if kicad_v6 is False else board.GetFootprints():
         old_pos = module.GetPosition()
         ref = module.GetReference()
-        path = module.GetPath()
+        path = module.GetPath() if kicad_v6 is False else '/' + '/'.join([x.AsString() for x in module.GetPath()])
         print(ref, path, file=DEBUG)
+
         if path in components:
             ref, pos, sheet = components[path]
+            if module.IsLocked():
+                print('  path =', path, '  sheet =', sheet, '  ref =', ref, ' is locked, skip', file=DEBUG)
+                continue
+
             offset = offsets[sheet]
             new_pos = pcbnew.wxPoint(pos[0] * POS_SCALE, (pos[1] + offset) * POS_SCALE)
             print('  path =', path, '  sheet =', sheet, '  ref =', ref,
@@ -136,6 +264,7 @@ def move_modules(components, board, offsets):
             module.SetPosition(new_pos)
         else:
             print('  NOT FOUND', file=DEBUG)
+
 
 class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
     def defaults(self):
@@ -156,7 +285,7 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         board = pcbnew.GetBoard()
         work_dir, in_pcb_file = os.path.split(board.GetFileName())
         os.chdir(work_dir)
-        root_schematic_file = os.path.splitext(in_pcb_file)[0] + '.sch'
+        root_schematic_file = os.path.splitext(in_pcb_file)[0] + '.kicad_sch' if ENABLE_KICAD_V6_API else '.sch'
         print('work_dir = {}'.format(work_dir), file=DEBUG)
         print('in_pcb_file = {}'.format(in_pcb_file), file=DEBUG)
         print('root_schematic_file = {}'.format(root_schematic_file), file=DEBUG)
@@ -172,7 +301,8 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
                 print('Oops. Sheet "{}" turned up twice!'.format(sheet_path), file=DEBUG)
                 sys.exit(1)
             sheet_name, file_name = sheet_queue.pop(sheet_path)
-            sheet = SchSheet(file_name)
+            sheet = SchSheetV6(file_name) if ENABLE_KICAD_V6_API else SchSheet(file_name)
+            print('store to sheet[{}] = {}'.format(sheet_path, file_name), file=DEBUG)
             sheets[sheet_path] = sheet
             for sub_sheet_name in sheet.sub_sheets:
                 sheet_queue[sheet_path + '/' + sub_sheet_name] = sheet.sub_sheets[sub_sheet_name]
@@ -208,6 +338,6 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
             print(cid, components[cid], file=DEBUG)
 
         # Move the components.
-        move_modules(components, board, offsets)
+        move_modules(components, board, offsets, kicad_v6=ENABLE_KICAD_V6_API)
 
 SchematicPositionsToLayoutPlugin().register()
