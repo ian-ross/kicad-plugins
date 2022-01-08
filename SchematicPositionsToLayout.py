@@ -8,7 +8,7 @@ import shlex
 
 if hasattr(pcbnew, 'GetBuildVersion'):
     BUILD_VERSION = pcbnew.GetBuildVersion()
-    MAJOR, MINOR = tuple(map(int, BUILD_VERSION.split('~')[0].split('.')[:2]))
+    MAJOR, MINOR = tuple(map(int, BUILD_VERSION.strip('()').split('~')[0].split('.')[:2]))
     if MAJOR >= 6 or MAJOR == 5 and MINOR == 99:
         ENABLE_KICAD_V6_API=True
 else:
