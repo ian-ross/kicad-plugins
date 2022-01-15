@@ -1,10 +1,11 @@
 from __future__ import print_function
-import os.path
+import os
 import re
 import sys
 import pcbnew
 from collections import defaultdict
 import shlex
+
 
 if hasattr(pcbnew, 'GetBuildVersion'):
     BUILD_VERSION = pcbnew.GetBuildVersion()
@@ -185,7 +186,7 @@ class SchSheetV6(SchSheet):
                 except ValueError:
                     return Symbol(token)
         
-        with open(filename) as f:
+        with open(filename,encoding='utf-8') as f:
             data = f.read()
 
         #ast = OneOrMore(nestedExpr()).parseString(data, parseAll=True)
@@ -271,7 +272,8 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         self.name = "Schematic positions -> PCB positions"
         self.category = "Modify PCB"
         self.description = "Layout components on PCB in same spatial relationships as components on schematic"
-
+        self.show_toolbar_button = True # Optional, defaults to False
+        self.icon_file_name = os.path.join(os.path.dirname(__file__), 'sch2layout.png') # Optional, defaults to ""
     def Run(self):
         global DEBUG
         work_dir = os.path.dirname(pcbnew.GetBoard().GetFileName())
@@ -286,6 +288,7 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         work_dir, in_pcb_file = os.path.split(board.GetFileName())
         os.chdir(work_dir)
         root_schematic_file = os.path.splitext(in_pcb_file)[0] + '.kicad_sch' if ENABLE_KICAD_V6_API else '.sch'
+        root_schematic_file = str(root_schematic_file)#对unicode中文的支持
         print('work_dir = {}'.format(work_dir), file=DEBUG)
         print('in_pcb_file = {}'.format(in_pcb_file), file=DEBUG)
         print('root_schematic_file = {}'.format(root_schematic_file), file=DEBUG)
@@ -339,5 +342,6 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
 
         # Move the components.
         move_modules(components, board, offsets, kicad_v6=ENABLE_KICAD_V6_API)
+        pcbnew.Refresh()
 
 SchematicPositionsToLayoutPlugin().register()
