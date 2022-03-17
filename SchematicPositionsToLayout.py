@@ -12,6 +12,8 @@ if hasattr(pcbnew, 'GetBuildVersion'):
     MAJOR, MINOR = tuple(map(int, BUILD_VERSION.strip('()').split('~')[0].split('.')[:2]))
     if MAJOR >= 6 or MAJOR == 5 and MINOR == 99:
         ENABLE_KICAD_V6_API=True
+    else:
+        ENABLE_KICAD_V6_API=False
 else:
     BUILD_VERSION = "Unknown"
     ENABLE_KICAD_V6_API = False
@@ -287,8 +289,8 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         board = pcbnew.GetBoard()
         work_dir, in_pcb_file = os.path.split(board.GetFileName())
         os.chdir(work_dir)
-        root_schematic_file = os.path.splitext(in_pcb_file)[0] + '.kicad_sch' if ENABLE_KICAD_V6_API else '.sch'
-        root_schematic_file = str(root_schematic_file)#对unicode中文的支持
+        root_schematic_file = os.path.splitext(in_pcb_file)[0] + ('.kicad_sch' if ENABLE_KICAD_V6_API else '.sch')
+        root_schematic_file = str(root_schematic_file) # 对Unicode中文的支持 (support for Chinese Unicode)
         print('work_dir = {}'.format(work_dir), file=DEBUG)
         print('in_pcb_file = {}'.format(in_pcb_file), file=DEBUG)
         print('root_schematic_file = {}'.format(root_schematic_file), file=DEBUG)
