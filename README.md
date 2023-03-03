@@ -4,6 +4,10 @@
 
 Based on an original idea by @jenschr
 
+Versions:
+- `SchematicPositionsToLayout.py`: KiCad v7.
+- `SchematicPositionsToLayout_V5_V6.py`: KiCad v5 and v6.
+
 The `SchematicPositionsToLayout.py` plugin helps with the initial
 organisation of parts when first creating a PCB layout from a
 schematic. Install the `SchematicPositionsToLayout.py` in your KiCad

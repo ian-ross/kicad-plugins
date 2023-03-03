@@ -7,6 +7,18 @@ from collections import defaultdict
 import shlex
 
 
+if hasattr(pcbnew, 'GetBuildVersion'):
+    BUILD_VERSION = pcbnew.GetBuildVersion()
+    MAJOR, MINOR = tuple(map(int, BUILD_VERSION.strip('()').split('~')[0].split('.')[:2]))
+    if MAJOR >= 6 or MAJOR == 5 and MINOR == 99:
+        ENABLE_KICAD_V6_API=True
+    else:
+        ENABLE_KICAD_V6_API=False
+else:
+    BUILD_VERSION = "Unknown"
+    ENABLE_KICAD_V6_API = False
+
+
 DEBUG = None
 
 # Tokenizer for schematic file input lines.
@@ -30,6 +42,99 @@ class SchSheet:
         if self.yrange[1] is None or y > self.yrange[1]:
             self.yrange[1] = y
 
+    # Initialise from schematic file.
+    def __init__(self, file):
+        self.components = dict()
+        self.sub_sheets = dict()
+
+        print('New sheet from:', file, file=DEBUG)
+
+        self.xrange = [None, None]
+        self.yrange = [None, None]
+
+        try:
+            with open(file) as fp:
+                state = None
+                component_ref = None
+                component_id = None
+                component_pos = None
+                sheet_name = None
+                sheet_id = None
+                sheet_file = None
+                sheet_bounds = None
+                for line in fp:
+                    line = line.strip()
+
+                    # Process start and end of component and start and
+                    # end of sheet lines.
+                    if line == '$Comp':
+                        state = 'in-component'
+                    if line == '$EndComp':
+                        state = None
+                        component_ref = None
+                        component_id = None
+                        component_pos = None
+                    if line == '$Sheet':
+                        state = 'in-sheet'
+                    if line == '$EndSheet':
+                        state = None
+                        sheet_name = None
+                        sheet_id = None
+                        sheet_file = None
+                        sheet_bounds = None
+
+                    # Handle component lines.
+                    if state == 'in-component':
+                        if line.startswith('L '):
+                            component_ref = tokens(line)[2]
+                        if line.startswith('U '):
+                            component_id = tokens(line)[3]
+                        if line.startswith('P '):
+                            component_pos = tuple(map(int, tokens(line)[1:]))
+                        # If we have a component reference and a
+                        # component position, record them and include
+                        # the component position in the coordinate
+                        # ranges.
+                        if (component_ref is not None and
+                            component_id is not None and
+                            component_pos is not None):
+                            self.components[component_id] = (component_ref, component_pos)
+                            self.extend_range(component_pos[0], component_pos[1])
+                            component_ref = None
+                            component_id = None
+                            component_pos = None
+
+                    # Handle sub-sheet lines.
+                    if state == 'in-sheet':
+                        if line.startswith('S '):
+                            sheet_bounds = tuple(map(int, tokens(line)[1:]))
+                        if line.startswith('U '):
+                            sheet_id = tokens(line)[1]
+                        if line.startswith('F0 '):
+                            sheet_name = line.split('"')[1]
+                        if line.startswith('F1 '):
+                            sheet_file = line.split('"')[1]
+                        # If we have a sheet name, sheet filename and
+                        # sheet bounds, record them and include the
+                        # bounds in the coordinate ranges.
+                        if (sheet_name is not None and
+                            sheet_id is not None and
+                            sheet_file is not None and
+                            sheet_bounds is not None):
+                            self.sub_sheets[sheet_id] = (sheet_name, sheet_file)
+                            self.extend_range(sheet_bounds[0], sheet_bounds[1])
+                            self.extend_range(sheet_bounds[0] + sheet_bounds[2],
+                                              sheet_bounds[1] + sheet_bounds[3])
+                            sheet_name = None
+                            sheet_id = None
+                            sheet_file = None
+                            sheet_bounds = None
+
+        except Exception as err:
+            print('Failed reading schematic file:', err, file=DEBUG)
+            sys.exit(1)
+
+class SchSheetV6(SchSheet):
     def __init__(self, file):
         self.components = dict()
         self.sub_sheets = dict()
@@ -111,9 +216,9 @@ class SchSheet:
 
     def pick_property(self, lst, prop_name=None, prop_id=None):
         for item in lst:
-            if item[0] == 'property' and (
-                    (prop_name is not None and item[1] == prop_name) or
-                    (prop_id is not None and int(self.pick(item[1:], 'id')['id'][0]) == prop_id)):
+            if item[0] == 'property' and ( \
+                                           (prop_name is not None and item[1] == prop_name) or \
+                                           (prop_id is not None and int(self.pick(item[1:], 'id')['id'][0]) == prop_id)):
                 #print("prop get:", item[2])
                 return item[2]
 
@@ -124,7 +229,7 @@ class SchSheet:
         for i in ast:
             token = i[0]
             if token == 'symbol':  #  Process start and end of component
-                component_ref = self.pick_property(i[1:], prop_name="Reference")
+                component_ref = self.pick_property(i[1:], prop_id=0)
                 component_id = self.pick(i[1:], "uuid")['uuid'][0]
                 component_pos = tuple(map(position_convert, self.pick(i[1:], "at")['at']))[:2]
                 self.components[component_id] = (component_ref, component_pos)
@@ -140,13 +245,13 @@ class SchSheet:
                 self.extend_range(sheet_bounds[0] + sheet_bounds[2],
                                   sheet_bounds[1] + sheet_bounds[3])
 
-POS_SCALE = 5000
+POS_SCALE = 15000
 
-def move_modules(components, board, offsets):
-    for module in board.GetFootprints():
+def move_modules(components, board, offsets, kicad_v6=False):
+    for module in board.GetModules() if kicad_v6 is False else board.GetFootprints():
         old_pos = module.GetPosition()
         ref = module.GetReference()
-        path = '/' + '/'.join([x.AsString() for x in module.GetPath()])
+        path = module.GetPath() if kicad_v6 is False else '/' + '/'.join([x.AsString() for x in module.GetPath()])
         print(ref, path, file=DEBUG)
 
         if path in components:
@@ -156,7 +261,7 @@ def move_modules(components, board, offsets):
                 continue
 
             offset = offsets[sheet]
-            new_pos = pcbnew.VECTOR2I(pos[0] * POS_SCALE, (pos[1] + offset) * POS_SCALE)
+            new_pos = pcbnew.wxPoint(pos[0] * POS_SCALE, (pos[1] + offset) * POS_SCALE)
             print('  path =', path, '  sheet =', sheet, '  ref =', ref,
                   '  pos =', pos, '  new_pos =', new_pos, file=DEBUG)
             module.SetPosition(new_pos)
@@ -184,7 +289,7 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
         board = pcbnew.GetBoard()
         work_dir, in_pcb_file = os.path.split(board.GetFileName())
         os.chdir(work_dir)
-        root_schematic_file = os.path.splitext(in_pcb_file)[0] + '.kicad_sch'
+        root_schematic_file = os.path.splitext(in_pcb_file)[0] + ('.kicad_sch' if ENABLE_KICAD_V6_API else '.sch')
         root_schematic_file = str(root_schematic_file) # 对Unicode中文的支持 (support for Chinese Unicode)
         print('work_dir = {}'.format(work_dir), file=DEBUG)
         print('in_pcb_file = {}'.format(in_pcb_file), file=DEBUG)
@@ -201,7 +306,7 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
                 print('Oops. Sheet "{}" turned up twice!'.format(sheet_path), file=DEBUG)
                 sys.exit(1)
             sheet_name, file_name = sheet_queue.pop(sheet_path)
-            sheet = SchSheet(file_name)
+            sheet = SchSheetV6(file_name) if ENABLE_KICAD_V6_API else SchSheet(file_name)
             print('store to sheet[{}] = {}'.format(sheet_path, file_name), file=DEBUG)
             sheets[sheet_path] = sheet
             for sub_sheet_name in sheet.sub_sheets:
@@ -238,7 +343,7 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
             print(cid, components[cid], file=DEBUG)
 
         # Move the components.
-        move_modules(components, board, offsets)
+        move_modules(components, board, offsets, kicad_v6=ENABLE_KICAD_V6_API)
         pcbnew.Refresh()
 
 SchematicPositionsToLayoutPlugin().register()
