@@ -109,11 +109,9 @@ class SchSheet:
         #print("pick:", attribute_names, "got:", obj)
         return obj
 
-    def pick_property(self, lst, prop_name=None, prop_id=None):
+    def pick_property(self, lst, prop_name):
         for item in lst:
-            if item[0] == 'property' and (
-                    (prop_name is not None and item[1] == prop_name) or
-                    (prop_id is not None and int(self.pick(item[1:], 'id')['id'][0]) == prop_id)):
+            if item[0] == 'property' and item[1] == prop_name:
                 #print("prop get:", item[2])
                 return item[2]
 
@@ -124,7 +122,7 @@ class SchSheet:
         for i in ast:
             token = i[0]
             if token == 'symbol':  #  Process start and end of component
-                component_ref = self.pick_property(i[1:], prop_name="Reference")
+                component_ref = self.pick_property(i[1:], "Reference")
                 component_id = self.pick(i[1:], "uuid")['uuid'][0]
                 component_pos = tuple(map(position_convert, self.pick(i[1:], "at")['at']))[:2]
                 self.components[component_id] = (component_ref, component_pos)
@@ -133,8 +131,8 @@ class SchSheet:
                 sheet_bounds_ast = self.pick(i[1:], 'at', 'size')
                 sheet_bounds = tuple(map(position_convert, sheet_bounds_ast['at'] + sheet_bounds_ast['size']))
                 sheet_id = self.pick(i[1:], "uuid")['uuid'][0]
-                sheet_name = self.pick_property(i[1:], prop_id=0)
-                sheet_file = self.pick_property(i[1:], prop_id=1)
+                sheet_name = self.pick_property(i[1:], "Sheetname")
+                sheet_file = self.pick_property(i[1:], "Sheetfile")
                 self.sub_sheets[sheet_id] = (sheet_name, sheet_file)
                 self.extend_range(sheet_bounds[0], sheet_bounds[1])
                 self.extend_range(sheet_bounds[0] + sheet_bounds[2],
@@ -217,7 +215,7 @@ class SchematicPositionsToLayoutPlugin(pcbnew.ActionPlugin):
             if sname == '':
                 continue
             s = sheets[sname]
-            offsets[sname] = running_offset
+            offsets[sname] = int(running_offset)
             running_offset += OFFSET_FACTOR * (s.yrange[1] - s.yrange[0])
 
         # Make a master component map, recording the component's
