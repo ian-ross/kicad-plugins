@@ -141,6 +141,10 @@ class SchSheet:
 POS_SCALE = 5000
 
 def move_modules(components, board, offsets):
+    selected=0
+    for module in board.GetFootprints():
+        if module.IsSelected():
+            selected=1
     for module in board.GetFootprints():
         old_pos = module.GetPosition()
         ref = module.GetReference()
@@ -152,12 +156,17 @@ def move_modules(components, board, offsets):
             if module.IsLocked():
                 print('  path =', path, '  sheet =', sheet, '  ref =', ref, ' is locked, skip', file=DEBUG)
                 continue
-
             offset = offsets[sheet]
             new_pos = pcbnew.VECTOR2I(pos[0] * POS_SCALE, (pos[1] + offset) * POS_SCALE)
             print('  path =', path, '  sheet =', sheet, '  ref =', ref,
                   '  pos =', pos, '  new_pos =', new_pos, file=DEBUG)
-            module.SetPosition(new_pos)
+            if selected==0:
+                module.SetPosition(new_pos)
+            elif module.IsSelected():
+                module.SetPosition(new_pos)
+            else:
+                continue
+                
         else:
             print('  NOT FOUND', file=DEBUG)
 
