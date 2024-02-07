@@ -141,10 +141,10 @@ class SchSheet:
 POS_SCALE = 5000
 
 def move_modules(components, board, offsets):
-    selected=0
+    selection_active = False
     for module in board.GetFootprints():
         if module.IsSelected():
-            selected=1
+            selection_active = True
     for module in board.GetFootprints():
         old_pos = module.GetPosition()
         ref = module.GetReference()
@@ -160,13 +160,8 @@ def move_modules(components, board, offsets):
             new_pos = pcbnew.VECTOR2I(pos[0] * POS_SCALE, (pos[1] + offset) * POS_SCALE)
             print('  path =', path, '  sheet =', sheet, '  ref =', ref,
                   '  pos =', pos, '  new_pos =', new_pos, file=DEBUG)
-            if selected==0:
+            if not selection_active or module.IsSelected():
                 module.SetPosition(new_pos)
-            elif module.IsSelected():
-                module.SetPosition(new_pos)
-            else:
-                continue
-                
         else:
             print('  NOT FOUND', file=DEBUG)
 
