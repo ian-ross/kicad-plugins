@@ -150,7 +150,6 @@ def move_modules(components, board, offsets):
         ref = module.GetReference()
         path = '/' + '/'.join([x.AsString() for x in module.GetPath()])
         print(ref, path, file=DEBUG)
-
         if path in components:
             ref, pos, sheet = components[path]
             if module.IsLocked():
